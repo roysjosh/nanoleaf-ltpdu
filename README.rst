@@ -16,11 +16,15 @@ nlpublic endpoint
 -----------------
 The vendor applications communicate with this endpoint when performing the Identify (bulb flash) function. The packet format is clear and used throughout::
 
+    Request:
     CoAP POST /nlpublic
+    Data sent (binary, shown as hex below):
     0001 0007 6c622f302f6964 0002 0000
-    Tag  Len  Endpoint       Tag  Len
+    Data sent (decoded):
+    Tag  Len  Value          Tag  Len  Value
+    1    7    "lb/0/id"      2    0    (null)
 
-Requests to this endpoint contain pairs of TLVs, the first designating the device's function (``lb/0/id`` in this case), and the second providing any arguments.
+All numbers are in network byte order. Requests to all endpoints contain pairs of TLVs, the first designating the device's function (``lb/0/id`` in this case), and the second providing any arguments. The CoAP status seems to always be 2.04 and should not be relied on for error checking. The returned tag should instead be checked for the expected value.
 
 nlsecure endpoint
 -----------------
@@ -33,6 +37,7 @@ To begin, a X25519 key exchange is performed::
 
 The response is as follows::
 
+    CoAP 2.04 Changed
     0101 0020 [device public key bytes]
 
 This keypair is only used to create symmetric keys immediately following the key exchange and can then be discarded. After obtaining the X25519 shared secret, the key and IV are computed::
@@ -49,8 +54,9 @@ The 8-digit PIN printed on the bulb is used the first time communication is esta
     CoAP POST /nlsecure
     0103 0008 "12345678"
 
-The PIN digits are passed as ASCII characters (0x30-0x39) not their binary representation (0x01-0x09). A successful response contains the access token::
+The PIN digits are passed as ASCII characters (0x30-0x39) not their binary representation (0x00-0x09). A successful response contains the access token::
 
+    CoAP 2.04 Changed
     0104 0008 XXXXXXXX
 
 The response is a 64-bit binary access token and should be securely stored for later use.
@@ -66,7 +72,7 @@ The 8-byte data field is identical to the data received in the PIN auth response
 
 nlltpdu endpoint
 ----------------
-Queries to this endpoint follow the format of the nlpublic endpoint. Multiple queries can be concatenated in a single request payload; responses are returned concatenated in the same order as the request.
+Queries to this endpoint follow the format of the nlpublic endpoint. Multiple queries can be concatenated in a single request payload; responses are returned concatenated in the same order as the request. The entire payload must be encrypted with the context created above. The received payload is decrypted with the same context. Do not send a request while you are waiting for a response until a timeout has passed! This will desynchronize your cipher context due to the decision to share the enc/dec context. Make use of multiple requests in a payload instead.
 
 ==========  ========  ======
 Function    Endpoint  Length
@@ -79,6 +85,8 @@ Saturation  lb/0/sa   2
 CCT (temp)  lb/0/ct   2
 ==========  ========  ======
 
+Color appears to be HSV (hue, saturation, value) versus HSL (hue, saturation, lightness).
+
 Requests for information use GET::
 
     CoAP GET /nlltpdu
@@ -86,6 +94,7 @@ Requests for information use GET::
 
 Responses typically have their second TLV as type 0003 which contains a status code after the length but before the payload::
 
+    CoAP 2.04 Changed
     0001 LLLL ENDPOINT 0003 LLLL SC XX[len-1]
 
 As an example, querying for the device info::
@@ -101,5 +110,13 @@ And the response::
 Commands are similar to queries, with POST as the method and any arguments carried in the second TLV::
 
     CoAP POST /nlltpdu
-    0001 LLLL ENDPOINT 0002 0001 01
+    0001 EP-LEN ENDPOINT 0002 ARG-LEN ARGS
+
+As an example, turn on a bulb (if it isn't already) and set the color to a pleasing Halloween orange #F25C00::
+
+    CoAP POST /nlltpdu
+    0001 0007 "lb/0/oo" 0002 0001 01
+    0001 0007 "lb/0/hu" 0002 0002 0017
+    0001 0007 "lb/0/sa" 0002 0002 0064
+    0001 0007 "lb/0/pb" 0002 0002 005f
 
