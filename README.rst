@@ -70,6 +70,40 @@ To authenticate a CoAP session using an access token, send the following payload
 
 The 8-byte data field is identical to the data received in the PIN auth response.
 
+Pseudo-code
+^^^^^^^^^^^
+See `aiocoap <https://github.com/chrysn/aiocoap>`_ and `cryptography <https://github.com/pyca/cryptography>`_ for useful libraries. Make sure to use the same CoAP client and AES context throughout your code after authenticating with the device!
+
+.. code-block:: python3
+
+    # generate our keys
+    ourSK = X25519PrivateKey.generate()
+    ourPK = ourSK.public_key()
+    ourPKbytes = ourPK.public_bytes(encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw)
+
+    # create and send payload
+    payload = create_tlv(0x0101, ourPKbytes)
+    request = Message(code=POST, payload=payload, uri=uri)
+    response = await coapClient.request(request).response
+
+    # get shared secret
+    devPK = X25519PublicKey.from_public_bytes(response.payload[4:])
+    sharedSecret = ourSK.exchange(devPK)
+
+    # get key/iv
+    digest = hashes.Hash(hashes.SHA1())
+    digest.update(bytearray(b'AES-NL-OPENAPI-KEY') + sharedSecret)
+    aesKey = digest.finalize()[0:16]
+
+    digest = hashes.Hash(hashes.SHA1())
+    digest.update(bytearray(b'AES-NL-OPENAPI-IV') + sharedSecret)
+    aesIv = digest.finalize()[0:16]
+
+    aesCipher = ciphers.Cipher(ciphers.algorithms.AES(aesKey), ciphers.modes.CTR(aesIv))
+    aesCtx = aesCipher.encryptor()
+
+    # all further payloads (sent & received) must be wrapped in aesCtx.update
+
 nlltpdu endpoint
 ----------------
 Queries to this endpoint follow the format of the nlpublic endpoint. Multiple queries can be concatenated in a single request payload; responses are returned concatenated in the same order as the request. The entire payload must be encrypted with the context created above. The received payload is decrypted with the same context. Do not send a request while you are waiting for a response until a timeout has passed! This will desynchronize your cipher context due to the decision to share the enc/dec context. Make use of multiple requests in a payload instead.
