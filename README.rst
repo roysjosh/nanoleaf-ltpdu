@@ -18,8 +18,10 @@ The vendor applications communicate with this endpoint when performing the Ident
 
     Request:
     CoAP POST /nlpublic
+
     Data sent (binary, shown as hex below):
     0001 0007 6c622f302f6964 0002 0000
+
     Data sent (decoded):
     Tag  Len  Value          Tag  Len  Value
     1    7    "lb/0/id"      2    0    (null)
