@@ -293,6 +293,8 @@ async def amain(args):
             [await target.turn_light_color(int(params[0]), int(params[1]), int(params[2])) for target in targets]
         elif action == 'identify':
             [await target.identify() for target in targets]
+        elif action == 'pair':
+            [await target.get_access_token(params[0]) for target in targets]
         elif action == 'pause':
             await asyncio.sleep(int(params[0]))
         elif action == 'power':
