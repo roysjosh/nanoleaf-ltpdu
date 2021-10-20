@@ -115,6 +115,24 @@ class NanoleafEssentials:
 
         self.aesCtx = None
 
+    async def delete_access_token(self):
+        if not self.aesCtx:
+            await self.__do_kex()
+
+        uri = "coap://%s/nlsecure" % (self.address)
+
+        payload = self.aesCtx.update(create_tlv(0x0106, b''))
+        request = Message(code=POST, payload=payload, uri=uri)
+
+        response = await self.coapClient.request(request).response
+        # XXX check for plaintext error
+        print("Delete/Token response CoAP(code:%s) header: %s payload: %s" % (response.code, response.payload[0:4].hex(), response.payload[4:].hex()))
+        mystery = self.aesCtx.update(response.payload)
+        # XXX check for ciphertext error
+        print("Delete/Token plaintext: %s" % (mystery.hex()))
+
+        # XXX no need to disconnect()
+
     async def turn_light_color(self, hue, sat, val):
         uri = "coap://%s/nlltpdu" % (self.address)
 
@@ -301,6 +319,8 @@ async def amain(args):
             [await target.turn_light_on_off(b'\x01' if params[0] == 'on' else b'\x00') for target in targets]
         elif action == 'state':
             print([await target.get_device_info() for target in targets])
+        elif action == 'unpair':
+            [await target.delete_access_token() for target in targets]
     # ... finally, disconnect
     [await target.disconnect() for target in devices_by_eui64.values()]
 
