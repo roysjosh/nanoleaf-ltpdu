@@ -342,6 +342,6 @@ asyncio.get_event_loop().run_until_complete(amain(args))
 ## get current state of all (authenticated) devices
 # nlctl.py auth@3TH2=XXXXXXXXXXXXXXXX auth@12FA=XXXXXXXXXXXXXXXX state
 ## toggle one bulb for 15 seconds
-# nlctl.py --devices 12FA auth=XXXXXXXXXXXXXXXX color=58,69,89 sleep=15 color=310,99,100
+# nlctl.py --devices 12FA auth=XXXXXXXXXXXXXXXX color=58,69,89 pause=15 color=310,99,100
 ## indicate the alarm is armed
 # nlctl.py --devices 3TH2 auth=XXXXXXXXXXXXXXXX color=0,88,100
