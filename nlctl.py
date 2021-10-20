@@ -16,6 +16,10 @@ def create_tlv(typ, data):
     struct.pack_into("!HH", buf, 0, typ, len(data))
     return buf + data
 
+def decode_tlv(buf):
+    #print("decode_tlv(%s)" % (buf.hex()))
+    return struct.unpack("!HH%ds" % (len(buf) - 4), buf)
+
 class NanoleafEssentials:
     def __init__(self, address, properties):
         self.address = address
@@ -64,15 +68,19 @@ class NanoleafEssentials:
 
         uri = "coap://%s/nlsecure" % (self.address)
 
-        payload = self.aesCtx.update(create_tlv(0x0103, pin))
+        payload = self.aesCtx.update(create_tlv(0x0103, pin.encode('ascii')))
         request = Message(code=POST, payload=payload, uri=uri)
 
         response = await self.coapClient.request(request).response
         # XXX check for plaintext error
         print("Auth/PIN response CoAP(code:%s) header: %s payload: %s" % (response.code, response.payload[0:4].hex(), response.payload[4:].hex()))
-        mystery = self.aesCtx.update(response.payload)
-        # XXX check for ciphertext error
-        print("Access token: %s" % (mystery.hex()))
+
+        (tag, length, access_token) = decode_tlv(self.aesCtx.update(response.payload))
+        if tag != 0x0104:
+            print('Error! PIN is incorrect.')
+            return None
+
+        print("Access token: %s" % (access_token.hex()))
 
     async def auth_with_access_token(self, access_token):
         if not self.aesCtx:
@@ -86,9 +94,13 @@ class NanoleafEssentials:
         response = await self.coapClient.request(request).response
         # XXX check for plaintext error
         print("Auth/Token response CoAP(code:%s) header: %s payload: %s" % (response.code, response.payload[0:4].hex(), response.payload[4:].hex()))
-        mystery = self.aesCtx.update(response.payload)
-        # XXX check for ciphertext error
-        print("Auth/Token plaintext: %s" % (mystery.hex()))
+
+        (tag, length, status) = decode_tlv(self.aesCtx.update(response.payload))
+        if tag != 0x01f1 or status != b'\x00':
+            print('Error! Access token is incorrect.')
+            return None
+
+        print("Auth/Token plaintext: (%04x, %d, %s)" % (tag, length, status.hex()))
 
     async def disconnect(self):
         uri = "coap://%s/nlsecure" % (self.address)
@@ -303,6 +315,8 @@ args = parser.parse_args()
 asyncio.get_event_loop().run_until_complete(amain(args))
 
 ### EXAMPLES ###
+## get auth token using PIN
+# nlctl.py --devices 12FA auth=12345678
 ## get current state of all (authenticated) devices
 # nlctl.py auth@3TH2=XXXXXXXXXXXXXXXX auth@12FA=XXXXXXXXXXXXXXXX state
 ## toggle one bulb for 15 seconds
