@@ -1,7 +1,7 @@
-Documentation for the LTPDU API
-===============================
+Documentation for the Nanoleaf Essentials API
+=============================================
 
-The Essentials bulb by `nanoleaf <https://nanoleaf.me/>`_ recently gained local control via Thread. Using an Elements device as a Thread Border Router causes Essentials devices to be advertised via a mDNS service ``_ltpdu._udp``. Those services reference the standard CoAP port and accessing the `CoRE resource discovery endpoint <https://datatracker.ietf.org/doc/html/rfc6690#section-4>`_ reveals the following::
+The Essentials bulb by `nanoleaf <https://nanoleaf.me/>`_ recently gained local control via Thread. Using an Elements device as a Thread Border Router causes Essentials devices to be advertised via a mDNS service ``_hap._udp`` and ``_ltpdu._udp``. Those services reference the standard CoAP port and accessing the `CoRE resource discovery endpoint <https://datatracker.ietf.org/doc/html/rfc6690#section-4>`_ reveals the following::
 
     </.well-known/core>;
     </nlpublic>;
@@ -11,6 +11,18 @@ The Essentials bulb by `nanoleaf <https://nanoleaf.me/>`_ recently gained local 
     </2>;
     </1>;
     </0>;
+
+/, /0, /1, /2 endpoints
+-----------------------
+The iOS application talks HAP over CoAP to these endpoints.
+- / is for encrypted HAP PDUs
+- /0 is unknown
+- /1 is equivalent to pair-setup
+- /2 is equivalent to pair-verify
+
+New HAP PDUs
+^^^^^^^^^^^^
+So far multiple new PDU opcodes have been seen versus what is publicly available. After pair-setup and pair-verify, the Home app sends opcode ``0x09`` to the accessory. The reply appears to be a GATT attribute table of sorts. Replying with this data to the Home app causes pairing to complete and it prompts for a name and room for the accessory. The app then begins to query the accessory in the background with HAP-Characteristic-Read (``0x0x3``) and another unknown opcode, ``0x0b``.
 
 nlpublic endpoint
 -----------------
