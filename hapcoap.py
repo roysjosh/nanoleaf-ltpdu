@@ -595,7 +595,6 @@ class NanoleafEssentials:
         uri = "coap://%s/" % (self.address)
         buf = bytearray(7)
 
-        # subscribe to "on" state changes
         characteristic = self.services.find_service_characteristic_by_type(service_type, characteristic_type)
         if not characteristic:
             print('Error! Service/Characteristic not found.')
@@ -604,18 +603,13 @@ class NanoleafEssentials:
         struct.pack_into('<BBBHH', buf, 0, 0b00000000, 0x0b, 0x70, characteristic.iid, 0x0000)
         payload = self.encCtx.encrypt(bytes(buf))
 
-        request = Message(code=POST, payload=payload, uri=uri, observe=0)
+        request = Message(code=POST, payload=payload, uri=uri)
         response = await self.coapClient.request(request).response
 
         payload = self.encCtx.decrypt(response.payload)
 
         #pduControl, pduTid, pduStatus, pduBodyLen = struct.unpack('<BBBH', payload[0:5])
         #print('PDU %s, TID %02x, %s, Len %d' % (pduControl & 0b00001110 == 0b00000010 and 'response' or 'request', pduTid, pduStatusMap[pduStatus], pduBodyLen))
-
-        #pduBody = payload[5:]
-        #print('Response body: %s' % (pduBody.hex(),))
-
-        #await asyncio.get_running_loop().create_future()
 
 async def get_service_info(zeroconf: Zeroconf, service_type: str, name: str) -> None:
     #info = zeroconf.get_service_info(service_type, name)
