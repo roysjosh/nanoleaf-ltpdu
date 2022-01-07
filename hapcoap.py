@@ -94,6 +94,12 @@ class HAP_TLV_TAGS:
     SIGNATURE = 10
     PERMISSIONS = 11
 
+def decode_pdu_03(buf):
+    expected_structure = {
+        HAP_PDU_TLV_TAGS.HAP_PARAM_VALUE: tlv8.DataType.BYTES,
+    }
+    return tlv8.decode(buf, expected_structure).first_by_id(HAP_PDU_TLV_TAGS.HAP_PARAM_VALUE).data
+
 def decode_pdu_09(buf):
     expected_structure = {
         HAP_PDU_TLV_TAGS.UNK_18: {
@@ -139,6 +145,16 @@ def decode_tlv(buf):
         HAP_TLV_TAGS.PERMISSIONS: tlv8.DataType.BYTES,
     }
     return { tlv.type_id: tlv for tlv in tlv8.decode(buf, expected_structure) }
+
+pduStatusMap = list( (
+    'Success',
+    'Unsupported PDU',
+    'Max-Procedures',
+    'Insufficient Authorization',
+    'Invalid Instance ID',
+    'Insufficient Authentication',
+    'Invalid Request',
+) )
 
 class PduCharacteristicProperties(object):
     def __init__(self, property_int):
@@ -561,16 +577,6 @@ class NanoleafEssentials:
         await self.get_accessory_info()
 
     async def get_accessory_info(self):
-        pduStatusMap = list( (
-            'Success',
-            'Unsupported PDU',
-            'Max-Procedures',
-            'Insufficient Authorization',
-            'Invalid Instance ID',
-            'Insufficient Authentication',
-            'Invalid Request',
-        ) )
-
         uri = "coap://%s/" % (self.address)
         buf = bytearray(7)
         #                                  Control     Op    TID   IID     Len
@@ -599,8 +605,11 @@ class NanoleafEssentials:
         if not characteristic:
             print('Error! Service/Characteristic not found.')
             return
+        if not characteristic.properties.notifies_events_in_connected_state:
+            print('Error! Characteristic cannot be subscribed to.')
+            return
 
-        struct.pack_into('<BBBHH', buf, 0, 0b00000000, 0x0b, 0x70, characteristic.iid, 0x0000)
+        struct.pack_into('<BBBHH', buf, 0, 0b00000000, HAP_PDU_OPCODES.UNK_0B_SUBSCRIBE, 0x70, characteristic.iid, 0x0000)
         payload = self.encCtx.encrypt(bytes(buf))
 
         request = Message(code=POST, payload=payload, uri=uri)
@@ -608,8 +617,60 @@ class NanoleafEssentials:
 
         payload = self.encCtx.decrypt(response.payload)
 
-        #pduControl, pduTid, pduStatus, pduBodyLen = struct.unpack('<BBBH', payload[0:5])
-        #print('PDU %s, TID %02x, %s, Len %d' % (pduControl & 0b00001110 == 0b00000010 and 'response' or 'request', pduTid, pduStatusMap[pduStatus], pduBodyLen))
+        pduControl, pduTid, pduStatus, pduBodyLen = struct.unpack('<BBBH', payload[0:5])
+        print('PDU %s, TID %02x, %s, Len %d' % (pduControl & 0b00001110 == 0b00000010 and 'response' or 'request', pduTid, pduStatusMap[pduStatus], pduBodyLen))
+
+    async def read_characteristic(self, service_type, characteristic_type):
+        uri = "coap://%s/" % (self.address)
+        buf = bytearray(7)
+
+        characteristic = self.services.find_service_characteristic_by_type(service_type, characteristic_type)
+        if not characteristic:
+            print('Error! Service/Characteristic not found.')
+            return
+        if not characteristic.properties.supports_secure_reads:
+            print('Error! Characteristic cannot be read.')
+            return
+
+        struct.pack_into('<BBBHH', buf, 0, 0b00000000, HAP_PDU_OPCODES.HAP_CHARACTERISTIC_READ, 0x70, characteristic.iid, 0x0000)
+        payload = self.encCtx.encrypt(bytes(buf))
+
+        request = Message(code=POST, payload=payload, uri=uri)
+        response = await self.coapClient.request(request).response
+
+        payload = self.encCtx.decrypt(response.payload)
+
+        pduControl, pduTid, pduStatus, pduBodyLen = struct.unpack('<BBBH', payload[0:5])
+        print('PDU %s, TID %02x, %s, Len %d' % (pduControl & 0b00001110 == 0b00000010 and 'response' or 'request', pduTid, pduStatusMap[pduStatus], pduBodyLen))
+
+        decoded = decode_pdu_03(payload[5:])
+        print('Body: %s' % (decoded.hex(),))
+
+    async def write_characteristic(self, service_type, characteristic_type, value):
+        uri = "coap://%s/" % (self.address)
+        buf = bytearray(7)
+
+        characteristic = self.services.find_service_characteristic_by_type(service_type, characteristic_type)
+        if not characteristic:
+            print('Error! Service/Characteristic not found.')
+            return
+        if not characteristic.properties.supports_secure_writes:
+            print('Error! Characteristic cannot be written.')
+            return
+
+        inner_payload = tlv8.encode([tlv8.Entry(HAP_PDU_TLV_TAGS.HAP_PARAM_VALUE, value)])
+        struct.pack_into('<BBBHH', buf, 0, 0b00000000, HAP_PDU_OPCODES.HAP_CHARACTERISTIC_WRITE, 0x70, characteristic.iid, len(inner_payload))
+        payload = self.encCtx.encrypt(bytes(buf) + inner_payload)
+
+        request = Message(code=POST, payload=payload, uri=uri)
+        response = await self.coapClient.request(request).response
+
+        payload = self.encCtx.decrypt(response.payload)
+
+        pduControl, pduTid, pduStatus, pduBodyLen = struct.unpack('<BBBH', payload[0:5])
+        print('PDU %s, TID %02x, %s, Len %d' % (pduControl & 0b00001110 == 0b00000010 and 'response' or 'request', pduTid, pduStatusMap[pduStatus], pduBodyLen))
+
+        print('Body: %s' % (payload[5:].hex(),))
 
 async def get_service_info(zeroconf: Zeroconf, service_type: str, name: str) -> None:
     #info = zeroconf.get_service_info(service_type, name)
@@ -683,8 +744,14 @@ async def amain(args):
                 ) for target in targets]
         elif action == 'pair':
             [await target.do_pair_setup(params[0]) for target in targets]
+        elif action == 'pause':
+            await asyncio.sleep(int(params[0]))
+        elif action == 'read':
+            [await target.read_characteristic(int(params[0], base=16), int(params[1], base=16)) for target in targets]
         elif action == 'subscribe':
             [await target.subscribe_to(int(params[0], base=16), int(params[1], base=16)) for target in targets]
+        elif action == 'write':
+            [await target.write_characteristic(int(params[0], base=16), int(params[1], base=16), bytes.fromhex(params[2])) for target in targets]
 
     if args.wait:
         await asyncio.get_running_loop().create_future()
@@ -713,3 +780,7 @@ asyncio.get_event_loop().run_until_complete(amain(args))
 # hapcoap.py --devices 1234 auth=LTPK,OurPairingID,LTSK ...
 ## subscribe to a Light accessory's On characteristic
 # hapcoap.py --wait --devices 1234 auth=LTPK,OurPairingID,LTSK subscribe=43,25
+## read a Light accessory's Name, On, ColorTemp, Brightness, Hue, Saturation
+# hapcoap.py --devices 1234 auth=... read=43,23 read=43,25 read=43,CE read=43,08 read=43,13 read=43,2F
+## toggle a light off and on
+# hapcoap.py --devices 1234 auth=... write=43,25,00 pause=3 write=43,25,01
