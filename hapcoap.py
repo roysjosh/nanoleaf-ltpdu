@@ -602,6 +602,11 @@ class NanoleafEssentials:
             await self.get_accessory_info()
         print('%r' % (self.services,))
 
+    async def _hap_pdu(self, opcode, tid, iid, data):
+        buf = bytearray(7)
+        struct.pack_into('<BBBHH', buf, 0, 0b00000000, opcode, tid, iid, len(data))
+        return bytes(buf + data)
+
     async def subscribe_to(self, service_type, characteristic_type):
         uri = "coap://%s/" % (self.address)
         buf = bytearray(7)
@@ -624,6 +629,37 @@ class NanoleafEssentials:
 
         pduControl, pduTid, pduStatus, pduBodyLen = struct.unpack('<BBBH', payload[0:5])
         print('PDU %s, TID %02x, %s, Len %d' % (pduControl & 0b00001110 == 0b00000010 and 'response' or 'request', pduTid, pduStatusMap[pduStatus], pduBodyLen))
+
+    async def read_all_characteristics(self):
+        uri = "coap://%s/" % (self.address)
+
+        for service in self.services.services:
+            readable_characteristics = [characteristic for characteristic in service.characteristics if characteristic.properties.supports_secure_reads]
+            read_all = b''.join([await self._hap_pdu(HAP_PDU_OPCODES.HAP_CHARACTERISTIC_READ, idx, characteristic.iid, b'') for (idx, characteristic) in enumerate(readable_characteristics)])
+            payload = self.encCtx.encrypt(read_all)
+
+            request = Message(code=POST, payload=payload, uri=uri)
+            response = await self.coapClient.request(request).response
+
+            payload = self.encCtx.decrypt(response.payload)
+
+            offset = 0
+            results = []
+            while True:
+                pduControl, pduTid, pduStatus, pduBodyLen = struct.unpack('<BBBH', payload[offset : offset + 5])
+                print('PDU %s, TID %02x, %s, Len %d' % (pduControl & 0b00001110 == 0b00000010 and 'response' or 'request', pduTid, pduStatusMap[pduStatus], pduBodyLen))
+
+                if pduBodyLen > 0:
+                    results.append(decode_pdu_03(payload[offset + 5 : offset + 5 + pduBodyLen]))
+                else:
+                    results.append(b'')
+
+                offset += (5 + pduBodyLen)
+                if offset >= len(payload):
+                    break
+
+            print('Service(%x)' % service.service_type)
+            [print('  Characteristic(%x)=%s' % (c.type, results[idx].hex())) for (idx, c) in enumerate(readable_characteristics)]
 
     async def read_characteristic(self, service_type, characteristic_type):
         uri = "coap://%s/" % (self.address)
@@ -755,6 +791,8 @@ async def amain(args):
             await asyncio.sleep(int(params[0]))
         elif action == 'read':
             [await target.read_characteristic(int(params[0], base=16), int(params[1], base=16)) for target in targets]
+        elif action == 'readall':
+            [await target.read_all_characteristics() for target in targets]
         elif action == 'subscribe':
             [await target.subscribe_to(int(params[0], base=16), int(params[1], base=16)) for target in targets]
         elif action == 'write':
