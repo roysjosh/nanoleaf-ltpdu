@@ -597,6 +597,11 @@ class NanoleafEssentials:
         services_tlv = tlv.first_by_id(HAP_PDU_TLV_TAGS.UNK_18).data.first_by_id(HAP_PDU_TLV_TAGS.UNK_19).data.first_by_id(HAP_PDU_TLV_TAGS.UNK_16_SERVICES).data
         self.services = PduServices(services_tlv)
 
+    async def dump_accessory_info(self):
+        if not self.services:
+            await self.get_accessory_info()
+        print('%r' % (self.services,))
+
     async def subscribe_to(self, service_type, characteristic_type):
         uri = "coap://%s/" % (self.address)
         buf = bytearray(7)
@@ -742,6 +747,8 @@ async def amain(args):
                     bytes.fromhex(params[1]),
                     bytes.fromhex(params[2])
                 ) for target in targets]
+        elif action == 'dump':
+            [await target.dump_accessory_info() for target in targets]
         elif action == 'pair':
             [await target.do_pair_setup(params[0]) for target in targets]
         elif action == 'pause':
