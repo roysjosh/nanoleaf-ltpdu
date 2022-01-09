@@ -652,7 +652,7 @@ class NanoleafEssentials:
             results = []
             while True:
                 pduControl, pduTid, pduStatus, pduBodyLen = struct.unpack('<BBBH', payload[offset : offset + 5])
-                print('PDU %s, TID %02x, %s, Len %d' % (pduControl & 0b00001110 == 0b00000010 and 'response' or 'request', pduTid, pduStatusMap[pduStatus], pduBodyLen))
+                #print('PDU %s, TID %02x, %s, Len %d' % (pduControl & 0b00001110 == 0b00000010 and 'response' or 'request', pduTid, pduStatusMap[pduStatus], pduBodyLen))
 
                 if pduBodyLen > 0:
                     results.append(decode_pdu_03(payload[offset + 5 : offset + 5 + pduBodyLen]))
@@ -667,25 +667,27 @@ class NanoleafEssentials:
             for idx, c in enumerate(readable_characteristics):
                 txt = ''
                 if not c.pf_format:
-                    txt = results[idx].hex()
+                    txt = '(hex) ' + results[idx].hex()
                 elif c.pf_format == 0x01:
-                    txt = str(bool(results[idx]))
+                    txt = '(bool) ' + str(bool(results[idx]))
                 elif c.pf_format == 0x04:
-                    txt = '%d' % struct.unpack('<B', results[idx])
+                    txt = '(uint8) %d' % struct.unpack('<B', results[idx])
                 elif c.pf_format == 0x06:
-                    txt = '%d' % struct.unpack('<H', results[idx])
+                    txt = '(uint16) %d' % struct.unpack('<H', results[idx])
                 elif c.pf_format == 0x08:
-                    txt = '%d' % struct.unpack('<L', results[idx])
+                    txt = '(uint32) %d' % struct.unpack('<L', results[idx])
                 elif c.pf_format == 0x0A:
-                    txt = '%d' % struct.unpack('<Q', results[idx])
+                    txt = '(uint64) %d' % struct.unpack('<Q', results[idx])
                 elif c.pf_format == 0x10:
-                    txt = '%d' % struct.unpack('<l', results[idx])
+                    txt = '(int32) %d' % struct.unpack('<l', results[idx])
                 elif c.pf_format == 0x14:
-                    txt = '%d' % struct.unpack('<f', results[idx])
+                    txt = '(float) %f' % struct.unpack('<f', results[idx])
                 elif c.pf_format == 0x19:
-                    txt = bytes.decode(results[idx])
+                    txt = '(str) ' + bytes.decode(results[idx])
+                elif c.pf_format == 0x1B:
+                    txt = '(data) ' + results[idx].hex()
                 else:
-                    txt = results[idx].hex()
+                    txt = '(unk/%02x) ' % (c.pf_format,) + results[idx].hex()
                 print('  Characteristic(%x)=%s' % (c.type, txt))
 
     async def read_characteristic(self, service_type, characteristic_type):
