@@ -198,6 +198,11 @@ class PduCharacteristic(object):
         if self.properties:
             self.properties = PduCharacteristicProperties(self.properties.data)
 
+        self.presentation_format = characteristic_tlv.first_by_id(HAP_PDU_TLV_TAGS.HAP_PARAM_GATT_PRESENTATION_FORMAT_DESCRIPTOR)
+        if self.presentation_format:
+            self.presentation_format = bytes(self.presentation_format.data)
+            (self.pf_format, self.pf_unit) = struct.unpack('<BxHxxx', self.presentation_format)
+
     def __repr__(self):
         return '{"type":"UUID(%x)","instance_id":"%s","properties":%s}' % (
             self.type and self.type or '',
@@ -659,7 +664,29 @@ class NanoleafEssentials:
                     break
 
             print('Service(%x)' % service.service_type)
-            [print('  Characteristic(%x)=%s' % (c.type, results[idx].hex())) for (idx, c) in enumerate(readable_characteristics)]
+            for idx, c in enumerate(readable_characteristics):
+                txt = ''
+                if not c.pf_format:
+                    txt = results[idx].hex()
+                elif c.pf_format == 0x01:
+                    txt = str(bool(results[idx]))
+                elif c.pf_format == 0x04:
+                    txt = '%d' % struct.unpack('<B', results[idx])
+                elif c.pf_format == 0x06:
+                    txt = '%d' % struct.unpack('<H', results[idx])
+                elif c.pf_format == 0x08:
+                    txt = '%d' % struct.unpack('<L', results[idx])
+                elif c.pf_format == 0x0A:
+                    txt = '%d' % struct.unpack('<Q', results[idx])
+                elif c.pf_format == 0x10:
+                    txt = '%d' % struct.unpack('<l', results[idx])
+                elif c.pf_format == 0x14:
+                    txt = '%d' % struct.unpack('<f', results[idx])
+                elif c.pf_format == 0x19:
+                    txt = bytes.decode(results[idx])
+                else:
+                    txt = results[idx].hex()
+                print('  Characteristic(%x)=%s' % (c.type, txt))
 
     async def read_characteristic(self, service_type, characteristic_type):
         uri = "coap://%s/" % (self.address)
