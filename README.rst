@@ -15,14 +15,18 @@ The Essentials bulb by `nanoleaf <https://nanoleaf.me/>`_ recently gained local 
 /, /0, /1, /2 endpoints
 -----------------------
 The iOS application talks HAP over CoAP to these endpoints.
+
 - / is for encrypted HAP PDUs
-- /0 is unknown
+
+- /0 is equivalent to identify
+
 - /1 is equivalent to pair-setup
+
 - /2 is equivalent to pair-verify
 
 New HAP PDUs
 ^^^^^^^^^^^^
-So far multiple new PDU opcodes have been seen versus what is publicly available. After pair-setup and pair-verify, the Home app sends opcode ``0x09`` to the accessory. The reply appears to be a GATT attribute table of sorts. Replying with this data to the Home app causes pairing to complete and it prompts for a name and room for the accessory. The app then begins to query the accessory in the background with HAP-Characteristic-Read (``0x0x3``) and another unknown opcode, ``0x0b``.
+So far multiple new PDU opcodes have been seen versus what is publicly available. After pair-setup and pair-verify, the Home app sends opcode ``0x09`` to the accessory. The reply appears to be a GATT attribute table of sorts. Replying with this data to the Home app causes pairing to complete and it prompts for a name and room for the accessory. The app then begins to query the accessory in the background with HAP-Characteristic-Read (``0x0x3``) and another unknown opcode, ``0x0b`` (starts a subscription to a characteristic).
 
 nlpublic endpoint
 -----------------
