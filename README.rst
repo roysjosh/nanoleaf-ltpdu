@@ -48,6 +48,8 @@ Performing a function like list pairings or remove pairings is no longer a simpl
 
 - unwrap the expected "list pairings" M2 response TLV from a HAP Param Value TLV
 
+The "remove pairing" operation takes place over the "list pairing" characteristic.
+
 nlpublic endpoint
 -----------------
 The vendor applications communicate with this endpoint when performing the Identify (bulb flash) function. The packet format is clear and used throughout::
