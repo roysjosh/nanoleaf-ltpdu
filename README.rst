@@ -28,6 +28,26 @@ New HAP PDUs
 ^^^^^^^^^^^^
 So far multiple new PDU opcodes have been seen versus what is publicly available. After pair-setup and pair-verify, the Home app sends opcode ``0x09`` to the accessory. The reply appears to be a GATT attribute table of sorts. Replying with this data to the Home app causes pairing to complete and it prompts for a name and room for the accessory. The app then begins to query the accessory in the background with HAP-Characteristic-Read (``0x0x3``) and another unknown opcode, ``0x0b`` (starts a subscription to a characteristic).
 
+Communicating with a control point
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Performing a function like list pairings or remove pairings is no longer a simple REST call away. You must first write your request to the control point and then read the return code. You must then read the actual result from the control point.
+
+- find "list pairings" characteristic IID
+
+- construct State=M1 and Method=ListPairings TLV
+
+- encode that TLV inside a HAP Param Value TLV
+
+- construct a HAP PDU with opcode Characteristic Write for the "list pairings" IID
+
+- write the encrypted request and decrypt the response
+
+- construct a HAP PDU with opcode Characteristic Read for the "list pairings" IID
+
+- write the encrypted request and decrypt the response
+
+- unwrap the expected "list pairings" M2 response TLV from a HAP Param Value TLV
+
 nlpublic endpoint
 -----------------
 The vendor applications communicate with this endpoint when performing the Identify (bulb flash) function. The packet format is clear and used throughout::
