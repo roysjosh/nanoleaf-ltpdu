@@ -12,44 +12,6 @@ The Essentials bulb by `nanoleaf <https://nanoleaf.me/>`_ recently gained local 
     </1>;
     </0>;
 
-/, /0, /1, /2 endpoints
------------------------
-The iOS application talks HAP over CoAP to these endpoints.
-
-- / is for encrypted HAP PDUs
-
-- /0 is equivalent to identify
-
-- /1 is equivalent to pair-setup
-
-- /2 is equivalent to pair-verify
-
-New HAP PDUs
-^^^^^^^^^^^^
-So far multiple new PDU opcodes have been seen versus what is publicly available. After pair-setup and pair-verify, the Home app sends opcode ``0x09`` to the accessory. The reply appears to be a GATT attribute table of sorts. Replying with this data to the Home app causes pairing to complete and it prompts for a name and room for the accessory. The app then begins to query the accessory in the background with HAP-Characteristic-Read (``0x0x3``) and another unknown opcode, ``0x0b`` (starts a subscription to a characteristic).
-
-Communicating with a control point
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Performing a function like list pairings or remove pairings is no longer a simple REST call away. You must first write your request to the control point and then read the return code. You must then read the actual result from the control point.
-
-- find "list pairings" characteristic IID
-
-- construct State=M1 and Method=ListPairings TLV
-
-- encode that TLV inside a HAP Param Value TLV
-
-- construct a HAP PDU with opcode Characteristic Write for the "list pairings" IID
-
-- write the encrypted request and decrypt the response
-
-- construct a HAP PDU with opcode Characteristic Read for the "list pairings" IID
-
-- write the encrypted request and decrypt the response
-
-- unwrap the expected "list pairings" M2 response TLV from a HAP Param Value TLV
-
-The "remove pairing" operation takes place over the "list pairing" characteristic.
-
 nlpublic endpoint
 -----------------
 The vendor applications communicate with this endpoint when performing the Identify (bulb flash) function. The packet format is clear and used throughout::
@@ -193,4 +155,95 @@ As an example, turn on a bulb (if it isn't already) and set the color to a pleas
     0001 0007 "lb/0/hu" 0002 0002 0017
     0001 0007 "lb/0/sa" 0002 0002 0064
     0001 0007 "lb/0/pb" 0002 0002 005f
+
+/, /0, /1, /2 endpoints
+-----------------------
+The iOS application talks HAP over CoAP to these endpoints.
+
+- / is for encrypted HAP PDUs
+
+- /0 is equivalent to identify
+
+- /1 is equivalent to pair-setup
+
+- /2 is equivalent to pair-verify
+
+New HAP PDUs
+^^^^^^^^^^^^
+So far multiple new PDU opcodes have been seen versus what is publicly available. After pair-setup and pair-verify, the Home app sends opcode ``0x09`` to the accessory. The reply appears to be a GATT attribute table of sorts. Replying with this data to the Home app causes pairing to complete and it prompts for a name and room for the accessory. The app then begins to query the accessory in the background with HAP-Characteristic-Read (``0x0x3``) and another unknown opcode, ``0x0b`` (starts a subscription to a characteristic).
+
+Communicating with a control point
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Performing a function like list pairings or remove pairings is no longer a simple REST call away. You must first write your request to the control point and then read the return code. You must then read the actual result from the control point.
+
+- find "list pairings" characteristic IID
+
+- construct State=M1 and Method=ListPairings TLV
+
+- encode that TLV inside a HAP Param Value TLV
+
+- construct a HAP PDU with opcode Characteristic Write for the "list pairings" IID
+
+- write the encrypted request and decrypt the response
+
+- construct a HAP PDU with opcode Characteristic Read for the "list pairings" IID
+
+- write the encrypted request and decrypt the response
+
+- unwrap the expected "list pairings" M2 response TLV from a HAP Param Value TLV
+
+The "remove pairing" operation takes place over the "list pairing" characteristic.
+
+Nanoleaf control point
+^^^^^^^^^^^^^^^^^^^^^^
+The hidden HAP characteristic at UUID bdeeeece-7100-0fa1-374d-a1cf02198ea2/a28e1902-cfa1-4d37-a10f-0071ceeeeebd (not sure which order the bytes go) supports some sort of Thread control. The Nanoleaf app sends the Thread network info packed in the TLV frame format described above in the nlXXX endpoint sections.
+
+New Nanoleaf TLV tags:
+
+0x0201::
+
+    ?
+
+0x0202::
+
+    ?
+
+0x0703::
+
+    ?
+
+0x0704::
+
+    ?
+
+0x0707::
+
+    ?
+
+0x0801::
+
+    TAG  L0   RW TAG  L1   EP    TAG  L2   TLV8
+    0801 004b 01 0001 0005 ascii 0002 003d ...
+
+    L0: overall length
+    RW: 0=read, 1=write
+    L1: length of endpoint (0001) tag
+    EP: ascii string indicating command target
+    L2: length of argument (0002) tag
+
+    Currently known endpoints:
+      ac/en: ?
+      th/tc: Thread network info
+
+    Top-level TLV8 tags:
+      1: unknown, seen as TLV 01 01 01
+      2: Thread network info
+      3: unknown, seen as TLV 03 01 00
+
+    Thread network info TLV8 tags:
+      1: NetworkName (16 byte ascii string)
+      2: Channel (1 byte int)
+      3: PanID (2 byte int)
+      4: ExtendedPanID (8 byte int)
+      5: MasterKey (16 byte data)
 
