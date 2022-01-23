@@ -206,7 +206,15 @@ New Nanoleaf TLV tags:
 
 0x0202::
 
-    ?
+    Read EUI64
+
+    TAG  LEN  DATA
+    0202 0002 0000
+
+    Response
+
+    TAG  LEN  DATA (REDACTED)
+    8202 0008 ......fffe......
 
 0x0703::
 
