@@ -113,6 +113,7 @@ Queries to this endpoint follow the format of the nlpublic endpoint. Multiple qu
 ==========  ========  ======
 Function    Endpoint  Length
 ==========  ========  ======
+Control     ci        variable
 DeviceInfo  di        36
 On/Off      lb/0/oo   1
 Brightness  lb/0/pb   2
@@ -143,7 +144,7 @@ And the response::
     CoAP 2.04 Changed
     0001 0002 "di" 0003 0026 00 hwver[10] fwver[8] serial[11] eui64[8]
 
-Commands are similar to queries, with POST as the method and any arguments carried in the second TLV::
+Writes are similar to queries, with POST as the method and any arguments carried in the second TLV::
 
     CoAP POST /nlltpdu
     0001 EP-LEN ENDPOINT 0002 ARG-LEN ARGS
@@ -155,6 +156,26 @@ As an example, turn on a bulb (if it isn't already) and set the color to a pleas
     0001 0007 "lb/0/hu" 0002 0002 0017
     0001 0007 "lb/0/sa" 0002 0002 0064
     0001 0007 "lb/0/pb" 0002 0002 005f
+
+Device control is performed via the ``ci`` endpoint. Inside the ``0002`` arguments TLV are the same `New Nanoleaf TLV tags`_ as seen over HAP::
+
+    CoAP POST /nlltpdu
+    0001 0002 "ci" 0002 0012 0801 000e 00 0001 0005 "th/tc" 0002 0000
+
+Which breaks down as::
+
+    Top-level endpoint TLV
+    0001 0002 "ci"
+                   Top-level argument TLV
+                   0002 0012 ...
+                             Command TLV
+                             0801 000e ...
+                                       Read/Write (R=0, W=1)
+                                       00
+                                          Command endpoint TLV
+                                          0001 0005 "th/tc"
+                                                            Command argument TLV
+                                                            0002 0000
 
 /, /0, /1, /2 endpoints
 -----------------------
@@ -170,7 +191,7 @@ The iOS application talks HAP over CoAP to these endpoints.
 
 New HAP PDUs
 ^^^^^^^^^^^^
-So far multiple new PDU opcodes have been seen versus what is publicly available. After pair-setup and pair-verify, the Home app sends opcode ``0x09`` to the accessory. The reply appears to be a GATT attribute table of sorts. Replying with this data to the Home app causes pairing to complete and it prompts for a name and room for the accessory. The app then begins to query the accessory in the background with HAP-Characteristic-Read (``0x0x3``) and another unknown opcode, ``0x0b`` (starts a subscription to a characteristic).
+So far multiple new PDU opcodes have been seen versus what is publicly available. After pair-setup and pair-verify, the Home app sends opcode ``0x09`` to the accessory. The reply appears to be a GATT attribute table of sorts. Replying with this data to the Home app causes pairing to complete and it prompts for a name and room for the accessory. The app then begins to query the accessory in the background with HAP-Characteristic-Read (``0x03``) and another unknown opcode, ``0x0b`` (starts a subscription to a characteristic).
 
 Communicating with a control point
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -196,9 +217,10 @@ The "remove pairing" operation takes place over the "list pairing" characteristi
 
 Nanoleaf control point
 ^^^^^^^^^^^^^^^^^^^^^^
-The hidden HAP characteristic at UUID bdeeeece-7100-0fa1-374d-a1cf02198ea2/a28e1902-cfa1-4d37-a10f-0071ceeeeebd (not sure which order the bytes go) supports some sort of Thread control. The Nanoleaf app sends the Thread network info packed in the TLV frame format described above in the nlXXX endpoint sections.
+The hidden HAP characteristic at UUID a28e1902-cfa1-4d37-a10f-0071ceeeeebd supports some sort of Thread control. The Nanoleaf app sends the Thread network info packed in the TLV frame format described above in the nlXXX endpoint sections.
 
-New Nanoleaf TLV tags:
+New Nanoleaf TLV tags
+^^^^^^^^^^^^^^^^^^^^^
 
 0x0201::
 
@@ -216,21 +238,39 @@ New Nanoleaf TLV tags:
     TAG  LEN  DATA (REDACTED)
     8202 0008 ......fffe......
 
+0x0701::
+
+    Preview scene
+
+0x0702::
+
+    Add scene
+
 0x0703::
 
-    ?
+    List scene identifiers
 
 0x0704::
 
-    ?
+    Get scene details
+
+0x0705::
+
+    Delete scene
+
+0x0706::
+
+    Execute scene
 
 0x0707::
 
-    ?
+    Get currently executing scene
 
 0x0801::
 
-    TAG  L0   RW TAG  L1   EP    TAG  L2   TLV8
+    Device control
+
+    TAG  L0   RW TAG  L1   EP    TAG  L2   DATA
     0801 004b 01 0001 0005 ascii 0002 003d ...
 
     L0: overall length
@@ -240,18 +280,23 @@ New Nanoleaf TLV tags:
     L2: length of argument (0002) tag
 
     Currently known endpoints:
-      ac/en: ?
-      th/tc: Thread network info
+      ac/en: ? 00
+      th/nc: ? 000c
+      th/tc: Thread network info as tlv8
+      th/tr: ? 0020
 
-    Top-level TLV8 tags:
+    th/tc TLV8 tags:
       1: unknown, seen as TLV 01 01 01
       2: Thread network info
       3: unknown, seen as TLV 03 01 00
 
     Thread network info TLV8 tags:
       1: NetworkName (16 byte ascii string)
-      2: Channel (1 byte int)
-      3: PanID (2 byte int)
-      4: ExtendedPanID (8 byte int)
+      2: Channel (2 byte int)
+      3: PanID (2 byte data)
+      4: ExtendedPanID (8 byte data)
       5: MasterKey (16 byte data)
 
+0x0902::
+
+    ?
