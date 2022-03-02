@@ -281,9 +281,21 @@ New Nanoleaf TLV tags
 
     Currently known endpoints:
       ac/en: ? 00
-      th/nc: ? 000c
+      th/nc: Thread node capabilities (same as HAP ``702``)
+        0x01: Minimal
+        0x02: Sleepy
+        0x04: Full
+        0x08: Router-eligible
+        0x10: Border Router capable
       th/tc: Thread network info as tlv8
-      th/tr: ? 0020
+      th/tr: Thread role (same as HAP ``703``)
+        0x01: Disabled
+        0x02: Detached
+        0x04: Joining
+        0x08: Child
+        0x10: Router
+        0x20: Leader
+        0x40: Border Router
 
     th/tc TLV8 tags:
       1: unknown, seen as TLV 01 01 01
