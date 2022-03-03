@@ -280,14 +280,18 @@ New Nanoleaf TLV tags
     L2: length of argument (0002) tag
 
     Currently known endpoints:
-      ac/en: ? 00
+      ac: Circadian Lighting? (tlv8 data)
+      lglt: Circadian Lighting? (8 byte data)
+      tm: Current time in seconds since epoch (8 byte unsigned int)
+      tz: Timezone offset in seconds (8 byte signed int)
+      ac/en: ?
       th/nc: Thread node capabilities (same as HAP 702)
         0x01: Minimal
         0x02: Sleepy
         0x04: Full
         0x08: Router-eligible
         0x10: Border Router capable
-      th/tc: Thread network info as tlv8
+      th/tc: Thread network info (tlv8 data)
       th/tr: Thread role (same as HAP 703)
         0x01: Disabled
         0x02: Detached
