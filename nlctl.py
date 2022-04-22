@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import logging
+from importlib.metadata import version
 import struct
 import sys
 
@@ -350,6 +351,10 @@ level = {
 
 logger = logging.getLogger('nlctl')
 logger.setLevel(level)
+
+logger.debug("library versions:")
+for name in ["aiocoap", "cryptography", "zeroconf"]:
+    logger.debug(f"  {name} = {version(name)}")
 
 asyncio.get_event_loop().run_until_complete(amain(args))
 
