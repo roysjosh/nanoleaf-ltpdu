@@ -257,7 +257,7 @@ async def get_service_info(zeroconf: Zeroconf, service_type: str, name: str) -> 
         ltpdu_services[addresses[0]] = info.properties
 
 def on_service_state_change(zeroconf: Zeroconf, service_type: str, name: str, state_change: ServiceStateChange) -> None:
-    #print("Service %s of type %s state changed: %s" % (name, service_type, state_change))
+    logger.debug("Service %s of type %s state changed: %s" % (name, service_type, state_change))
 
     if state_change is ServiceStateChange.Added:
         asyncio.ensure_future(get_service_info(zeroconf, service_type, name))
@@ -325,14 +325,31 @@ async def amain(args):
     [await target.disconnect() for target in devices_by_eui64.values()]
 
 ### MAIN ###
-logging.basicConfig(level=logging.INFO)
-#logging.getLogger('zeroconf').setLevel(logging.DEBUG)
-
 parser = argparse.ArgumentParser()
 parser.add_argument('action', help='actions to perform (auth[@ID/EUI64]=pin/token; color=h,s,v; identify; pause=seconds; power=on/off; state)', nargs='+')
 parser.add_argument('--devices', help='list of device IDs/EUI64s to perform actions on', type=lambda x: x.split(','))
+parser.add_argument('--verbose', '-v', help='increase debug level', action='count', default=4)
 parser.add_argument('--zeroconf-timeout', help='seconds to wait for device discovery', type=int, default=1)
 args = parser.parse_args()
+
+logging.basicConfig(level=logging.INFO)
+
+# if debug level is > 5, turn up library debug
+if args.verbose > 5:
+    args.verbose = 5
+    logging.getLogger('coap').setLevel(logging.DEBUG)
+    logging.getLogger('zeroconf').setLevel(logging.DEBUG)
+
+level = {
+    5: logging.DEBUG,
+    4: logging.INFO,
+    3: logging.WARNING,
+    2: logging.ERROR,
+    1: logging.CRITICAL,
+}.get(args.verbose)
+
+logger = logging.getLogger('nlctl')
+logger.setLevel(level)
 
 asyncio.get_event_loop().run_until_complete(amain(args))
 
