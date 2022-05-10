@@ -160,22 +160,16 @@ As an example, turn on a bulb (if it isn't already) and set the color to a pleas
 Device control is performed via the ``ci`` endpoint. Inside the ``0002`` arguments TLV are the same `New Nanoleaf TLV tags`_ as seen over HAP::
 
     CoAP POST /nlltpdu
-    0001 0002 "ci" 0002 0012 0801 000e 00 0001 0005 "th/tc" 0002 0000
+    0001 0002 "ci" 0002 0012 ...
 
 Which breaks down as::
 
     Top-level endpoint TLV
     0001 0002 "ci"
                    Top-level argument TLV
-                   0002 0012 ...
-                             Command TLV
-                             0801 000e ...
-                                       Read/Write (R=0, W=1)
-                                       00
-                                          Command endpoint TLV
-                                          0001 0005 "th/tc"
-                                                            Command argument TLV
-                                                            0002 0000
+                   0002 0012
+                             New Nanoleaf TLV tags
+                             ...
 
 /, /0, /1, /2 endpoints
 -----------------------
@@ -224,7 +218,7 @@ New Nanoleaf TLV tags
 
 0x0201::
 
-    ?
+    An LTPDU access token, used during firmware update
 
 0x0202::
 
@@ -269,6 +263,7 @@ New Nanoleaf TLV tags
 0x0801::
 
     Device control
+    Nanoleaf LTPDU TLVs with a R/W prefix
 
     TAG  L0   RW TAG  L1   EP    TAG  L2   DATA
     0801 004b 01 0001 0005 ascii 0002 003d ...
@@ -285,14 +280,14 @@ New Nanoleaf TLV tags
       tm: Current time in seconds since epoch (8 byte unsigned int)
       tz: Timezone offset in seconds (8 byte signed int)
       ac/en: ?
-      th/nc: Thread node capabilities (same as HAP 702)
+      th/nc: Thread node capabilities (1 byte bitfield, same as HAP 702)
         0x01: Minimal
         0x02: Sleepy
         0x04: Full
         0x08: Router-eligible
         0x10: Border Router capable
-      th/tc: Thread network info (tlv8 data)
-      th/tr: Thread role (same as HAP 703)
+      th/tc: Thread network info (tlv8 data, same as HAP 704)
+      th/tr: Thread role (1 byte bitfield, same as HAP 703)
         0x01: Disabled
         0x02: Detached
         0x04: Joining
