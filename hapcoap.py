@@ -9,6 +9,9 @@ from aiocoap import POST, VALID, Context, Message, resource
 # XXX figure out why pairing fails when using published version
 # XXX use local copy from github for now
 #from aiohomekit.crypto.srp import SrpClient
+from aiohomekit.model import Accessory
+from aiohomekit.model.characteristics import Characteristic, CharacteristicsTypes
+from aiohomekit.model.services import Service
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
@@ -131,6 +134,17 @@ def decode_pdu_09(buf):
     }
     return tlv8.decode(buf, expected_structure)
 
+def decode_list_pairings_response(buf):
+    expected_structure = {
+        HAP_PDU_TLV_TAGS.HAP_PARAM_VALUE: {
+            HAP_TLV_TAGS.STATE: tlv8.DataType.INTEGER,
+            HAP_TLV_TAGS.IDENTIFIER: tlv8.DataType.BYTES,
+            HAP_TLV_TAGS.PUBLIC_KEY: tlv8.DataType.BYTES,
+            HAP_TLV_TAGS.PERMISSIONS: tlv8.DataType.INTEGER,
+        },
+    }
+    return tlv8.decode(buf, expected_structure)
+
 def decode_tlv(buf):
     expected_structure = {
         HAP_TLV_TAGS.METHOD: tlv8.DataType.INTEGER,
@@ -144,7 +158,9 @@ def decode_tlv(buf):
         HAP_TLV_TAGS.SIGNATURE: tlv8.DataType.BYTES,
         HAP_TLV_TAGS.PERMISSIONS: tlv8.DataType.BYTES,
     }
-    return { tlv.type_id: tlv for tlv in tlv8.decode(buf, expected_structure) }
+    decoded = tlv8.decode(buf, expected_structure)
+    print(tlv8.format_string(decoded))
+    return { tlv.type_id: tlv for tlv in decoded }
 
 pduStatusMap = list( (
     'Success',
@@ -171,18 +187,30 @@ class PduCharacteristicProperties(object):
         self.supports_broadcast_notify = property_int & 0x0200
 
     def __repr__(self):
-        return '{"r":%s,"w":%s,"aad":%s,"tw":%s,"sr":%s,"sw":%s,"hidden":%s,"evc":%s,"evd":%s,"bcast":%s}' % (
-            self.supports_read and 'true' or 'false',
-            self.supports_write and 'true' or 'false',
+        return '{"aa":%s,"tw":%s,"pr":%s,"pw":%s,"hd":%s,"ev":%s}' % (
             self.supports_additional_authorization_data and 'true' or 'false',
             self.requires_hap_characteristic_timed_write_procedure and 'true' or 'false',
             self.supports_secure_reads and 'true' or 'false',
             self.supports_secure_writes and 'true' or 'false',
             self.hidden_from_user and 'true' or 'false',
             self.notifies_events_in_connected_state and 'true' or 'false',
-            self.notifies_events_in_disconnected_state and 'true' or 'false',
-            self.supports_broadcast_notify and 'true' or 'false'
         )
+
+    def to_dict(self):
+        result = list()
+        if self.supports_secure_reads:
+            result.append('pr')
+        if self.supports_secure_writes:
+            result.append('pw')
+        if self.notifies_events_in_connected_state:
+            result.append('ev')
+        if self.supports_additional_authorization_data:
+            result.append('aa')
+        if self.requires_hap_characteristic_timed_write_procedure:
+            result.append('tw')
+        if self.hidden_from_user:
+            result.append('hd')
+        return result
 
 class PduCharacteristic(object):
     def __init__(self, characteristic_tlv):
@@ -203,12 +231,111 @@ class PduCharacteristic(object):
             self.presentation_format = bytes(self.presentation_format.data)
             (self.pf_format, self.pf_unit) = struct.unpack('<BxHxxx', self.presentation_format)
 
+        self.value = None
+
     def __repr__(self):
-        return '{"type":"UUID(%x)","instance_id":"%s","properties":%s}' % (
+        return '{"type":"%X","iid":"%s","perms":%s}' % (
             self.type and self.type or '',
-            self.iid and '0x%04x' % (self.iid,) or '',
+            self.iid and str(self.iid) or '',
             repr(self.properties)
         )
+
+    def get_format(self):
+        if self.pf_format == 0x01:
+            return 'bool'
+        elif self.pf_format in [0x04, 0x06, 0x08, 0x0A, 0x10]:
+            return 'int'
+        elif self.pf_format == 0x14:
+            return 'float'
+        elif self.pf_format == 0x19:
+            return 'string'
+        elif self.pf_format == 0x1B:
+            return 'data'
+        return 'unknown'
+
+    def get_unit(self):
+        if self.pf_unit == 0x272F:
+            return 'celsius'
+        elif self.pf_unit == 0x2763:
+            return 'arcdegrees'
+        elif self.pf_unit == 0x27AD:
+            return 'percentage'
+        elif self.pf_unit == 0x2700:
+            return 'unitless'
+        elif self.pf_unit == 0x2731:
+            return 'lux'
+        elif self.pf_unit == 0x2703:
+            return 'seconds'
+        return 'unknown'
+
+    def get_value(self):
+        if not self.pf_format:
+            return self.value
+        elif self.pf_format == 0x01:
+            val = struct.unpack('<B', self.value)[0]
+            return bool(val)
+        elif self.pf_format == 0x04:
+            return struct.unpack('<B', self.value)[0]
+        elif self.pf_format == 0x06:
+            return struct.unpack('<H', self.value)[0]
+        elif self.pf_format == 0x08:
+            return struct.unpack('<L', self.value)[0]
+        elif self.pf_format == 0x0A:
+            return struct.unpack('<Q', self.value)[0]
+        elif self.pf_format == 0x10:
+            return struct.unpack('<l', self.value)[0]
+        elif self.pf_format == 0x14:
+            return struct.unpack('<f', self.value)[0]
+        elif self.pf_format == 0x19:
+            return bytes.decode(self.value)
+        elif self.pf_format == 0x1B:
+            # ???
+            return self.value.hex()
+        else:
+            return self.value
+
+    def set_value(self, value):
+        if not self.pf_format:
+            self.value = value
+        elif self.pf_format == 0x01:
+            self.value = b'\x01' if value else b'\x00'
+        elif self.pf_format == 0x04:
+            self.value = struct.pack('<B', value)
+        elif self.pf_format == 0x06:
+            self.value = struct.pack('<H', value)
+        elif self.pf_format == 0x08:
+            self.value = struct.pack('<L', value)
+        elif self.pf_format == 0x0A:
+            self.value = struct.pack('<Q', value)
+        elif self.pf_format == 0x10:
+            self.value = struct.pack('<l', value)
+        elif self.pf_format == 0x14:
+            self.value = struct.pack('<f', value)
+        elif self.pf_format == 0x19:
+            self.value = value.encode()
+        elif self.pf_format == 0x1B:
+            # ???
+            self.value = bytes.fromhex(value)
+        else:
+            self.value = value
+
+    def to_dict(self):
+        result = {
+            'type': '%X' % (self.type,),
+            'iid': self.iid,
+            'perms': self.properties.to_dict(),
+        }
+
+        if self.pf_format != None:
+            result['format'] = self.get_format()
+
+        if self.pf_unit != None and self.pf_unit != 0x2700:
+            result['unit'] = self.get_unit()
+
+        if self.value != None:
+            result['value'] = self.get_value()
+
+        return result
 
 class PduService(object):
     def __init__(self, service_tlv):
@@ -223,11 +350,24 @@ class PduService(object):
         self.characteristics = [PduCharacteristic(characteristic_tlv.data) for characteristic_tlv in service_tlv.first_by_id(HAP_PDU_TLV_TAGS.UNK_14_CHARACTERISTICS).data.by_id(HAP_PDU_TLV_TAGS.UNK_13_CHARACTERISTIC)]
 
     def __repr__(self):
-        return '{"type":"UUID(%x)","iid":"%s","characteristics":%s}' % (
+        return '{"type":"%X","iid":"%s","characteristics":%s}' % (
             self.service_type and self.service_type or '',
-            self.service_instance_id and '0x%04x' % (self.service_instance_id,) or '',
+            self.service_instance_id and str(self.service_instance_id) or '',
             repr(self.characteristics)
         )
+
+    def to_dict(self):
+        return {
+            'type': '%X' % (self.service_type,),
+            'iid': self.service_instance_id,
+            'characteristics': [characteristic.to_dict() for characteristic in self.characteristics],
+        }
+
+    def find_characteristic_by_iid(self, iid):
+        for characteristic in self.characteristics:
+            if characteristic.iid == iid:
+                return characteristic
+        return None
 
     def find_characteristic_by_type(self, characteristic_type):
         for characteristic in self.characteristics:
@@ -235,12 +375,26 @@ class PduService(object):
                 return characteristic
         return None
 
-class PduServices(object):
-    def __init__(self, services_tlv):
+class PduAccessoryInfo(object):
+    def __init__(self, aid, services_tlv):
+        self.aid = aid
         self.services = [PduService(service_tlv.data) for service_tlv in services_tlv.by_id(HAP_PDU_TLV_TAGS.UNK_15_SERVICE)]
 
     def __repr__(self):
-        return '{"services":' + repr(self.services) + '}'
+        return '{"aid":' + self.aid + ',"services":' + repr(self.services) + '}'
+
+    def to_dict(self):
+        return {
+            'aid': self.aid,
+            'services': [service.to_dict() for service in self.services],
+        }
+
+    def find_characteristic_by_iid(self, iid):
+        for service in self.services:
+            characteristic = service.find_characteristic_by_iid(iid)
+            if characteristic:
+                return characteristic
+        return None
 
     def find_service_by_type(self, service_type):
         for service in self.services:
@@ -296,7 +450,7 @@ class EncCtx(object):
         self.sendCtr += 1
         return enc_data
 
-class NanoleafEssentials:
+class HAPThreadDevice:
     def __init__(self, address, properties):
         self.address = address
         self.properties = properties
@@ -478,8 +632,9 @@ class NanoleafEssentials:
     async def do_pair_verify(self, dev_ltpk_bytes, my_uuid, my_ltsk_bytes):
         root = resource.Site()
         root.add_resource([], RootResource())
-        self.coapClient = await Context.create_server_context(root)
+        self.coapClient = await Context.create_server_context(root, bind=('::',0))
         uri = "coap://%s/2" % (self.address)
+        print(f"Pair-Verify uri={uri}")
 
         # pair-verify M1
         ourSK = X25519PrivateKey.generate()
@@ -581,6 +736,117 @@ class NanoleafEssentials:
 
         await self.get_accessory_info()
 
+    async def do_remove_pairing(self, pairing_id):
+        '''
+M1 ->
+<- M2
+M3 ->
+<- M4
+SUCCESS: pair verify
+PDU response, TID 70, Success, Len 1108
+M1 request payload: 000299250008000106060101000105
+M1 ->
+M1 response CoAP(code:2.04 Changed) payload: 0299000000
+<- M1
+M2 request payload: 00039a25000000
+M2 ->
+M2 response CoAP(code:2.04 Changed) payload: 029a005000014e060102012464646435313531312d663638322d346433322d396265312d6561643630393665316164660320f842d6de7dcfb448ae79d95735cb7e84a80d7005a5016f36af45
+2097f38477a90b0101
+<- M2
+M2 <EntryList [<tlv8.Entry object at 0x7f62adbd0cd0>]>
+[
+  <1, [
+    <6, 2>,
+    <1, b'ddd51511-f682-4d32-9be1-ead6096e1adf'>,
+    <3, b'\xf8B\xd6\xde}\xcf\xb4H\xaey\xd9W5\xcb~\x84\xa8\rp\x05\xa5\x01o6\xafE \x97\xf3\x84w\xa9'>,
+    <11, 1>,
+  ]>,
+]
+M1 request payload: 00029925002e00012c060101000104012464646435313531312d663638322d346433322d396265312d656164363039366531616466
+M1 ->
+M1 response CoAP(code:2.04 Changed) payload: 0299000000
+<- M1
+M2 request payload: 00039a25000000
+M2 ->
+M2 response CoAP(code:2.04 Changed) payload: 029a0005000103060102
+<- M2
+M2 <EntryList [<tlv8.Entry object at 0x7f62ad72cbb0>]>
+[
+  <1, [
+    <6, 2>,
+  ]>,
+]
+        '''
+        uri = "coap://%s/" % (self.address)
+
+        characteristic = self.services.find_service_characteristic_by_type(0x55, 0x50)
+
+        tlv_payload = tlv8.encode([
+            tlv8.Entry(HAP_TLV_TAGS.STATE, 1),
+            tlv8.Entry(HAP_TLV_TAGS.METHOD, HAP_PAIRING_METHODS.LIST_PAIRINGS),
+        ])
+        inner_payload = tlv8.encode([tlv8.Entry(HAP_PDU_TLV_TAGS.HAP_PARAM_VALUE, tlv_payload)])
+        payload = self._hap_pdu(HAP_PDU_OPCODES.HAP_CHARACTERISTIC_WRITE, 0x99, characteristic.iid, inner_payload)
+        print('M1 request payload: %s' % (payload.hex(),))
+        print('M1 ->')
+        payload = self.encCtx.encrypt(payload)
+        request = Message(code=POST, payload=payload, uri=uri)
+        response = await self.coapClient.request(request).response
+        payload = self.encCtx.decrypt(response.payload)
+        print('M1 response CoAP(code:%s) payload: %s' % (response.code, payload.hex()))
+        print('<- M1')
+
+        payload = self._hap_pdu(HAP_PDU_OPCODES.HAP_CHARACTERISTIC_READ, 0x9A, characteristic.iid, b'')
+        print('M2 request payload: %s' % (payload.hex(),))
+        print('M2 ->')
+        payload = self.encCtx.encrypt(payload)
+        request = Message(code=POST, payload=payload, uri=uri)
+        response = await self.coapClient.request(request).response
+        payload = self.encCtx.decrypt(response.payload)
+        print('M2 response CoAP(code:%s) payload: %s' % (response.code, payload.hex()))
+        print('<- M2')
+
+        # list pairings M2
+        m2 = decode_list_pairings_response(payload[5:])
+        print('M2 %r' % (m2,))
+        #for k in m2.keys():
+        #    print('- %r = %s' % (k, bytes(m2[k].data).hex()))
+        print(tlv8.format_string(m2))
+
+        # XXX XXX XXX
+        tlv_payload = tlv8.encode([
+            tlv8.Entry(HAP_TLV_TAGS.STATE, 1),
+            tlv8.Entry(HAP_TLV_TAGS.METHOD, HAP_PAIRING_METHODS.REMOVE_PAIRING),
+            tlv8.Entry(HAP_TLV_TAGS.IDENTIFIER, pairing_id),
+        ])
+        inner_payload = tlv8.encode([tlv8.Entry(HAP_PDU_TLV_TAGS.HAP_PARAM_VALUE, tlv_payload)])
+        payload = self._hap_pdu(HAP_PDU_OPCODES.HAP_CHARACTERISTIC_WRITE, 0x99, characteristic.iid, inner_payload)
+        print('M1 request payload: %s' % (payload.hex(),))
+        print('M1 ->')
+        payload = self.encCtx.encrypt(payload)
+        request = Message(code=POST, payload=payload, uri=uri)
+        response = await self.coapClient.request(request).response
+        payload = self.encCtx.decrypt(response.payload)
+        print('M1 response CoAP(code:%s) payload: %s' % (response.code, payload.hex()))
+        print('<- M1')
+
+        payload = self._hap_pdu(HAP_PDU_OPCODES.HAP_CHARACTERISTIC_READ, 0x9A, characteristic.iid, b'')
+        print('M2 request payload: %s' % (payload.hex(),))
+        print('M2 ->')
+        payload = self.encCtx.encrypt(payload)
+        request = Message(code=POST, payload=payload, uri=uri)
+        response = await self.coapClient.request(request).response
+        payload = self.encCtx.decrypt(response.payload)
+        print('M2 response CoAP(code:%s) payload: %s' % (response.code, payload.hex()))
+        print('<- M2')
+
+        # XXX remove pairings M2
+        m2 = decode_list_pairings_response(payload[5:])
+        print('M2 %r' % (m2,))
+        #for k in m2.keys():
+        #    print('- %r = %s' % (k, bytes(m2[k].data).hex()))
+        print(tlv8.format_string(m2))
+
     async def get_accessory_info(self):
         uri = "coap://%s/" % (self.address)
         buf = bytearray(7)
@@ -600,14 +866,14 @@ class NanoleafEssentials:
 
         tlv = decode_pdu_09(pduBody)
         services_tlv = tlv.first_by_id(HAP_PDU_TLV_TAGS.UNK_18).data.first_by_id(HAP_PDU_TLV_TAGS.UNK_19).data.first_by_id(HAP_PDU_TLV_TAGS.UNK_16_SERVICES).data
-        self.services = PduServices(services_tlv)
+        self.services = PduAccessoryInfo(1, services_tlv)
 
     async def dump_accessory_info(self):
         if not self.services:
             await self.get_accessory_info()
         print('%r' % (self.services,))
 
-    async def _hap_pdu(self, opcode, tid, iid, data):
+    def _hap_pdu(self, opcode, tid, iid, data):
         buf = bytearray(7)
         struct.pack_into('<BBBHH', buf, 0, 0b00000000, opcode, tid, iid, len(data))
         return bytes(buf + data)
@@ -638,9 +904,10 @@ class NanoleafEssentials:
     async def read_all_characteristics(self):
         uri = "coap://%s/" % (self.address)
 
+        hkaccy = Accessory()
         for service in self.services.services:
             readable_characteristics = [characteristic for characteristic in service.characteristics if characteristic.properties.supports_secure_reads]
-            read_all = b''.join([await self._hap_pdu(HAP_PDU_OPCODES.HAP_CHARACTERISTIC_READ, idx, characteristic.iid, b'') for (idx, characteristic) in enumerate(readable_characteristics)])
+            read_all = b''.join([self._hap_pdu(HAP_PDU_OPCODES.HAP_CHARACTERISTIC_READ, idx, characteristic.iid, b'') for (idx, characteristic) in enumerate(readable_characteristics)])
             payload = self.encCtx.encrypt(read_all)
 
             request = Message(code=POST, payload=payload, uri=uri)
@@ -663,13 +930,15 @@ class NanoleafEssentials:
                 if offset >= len(payload):
                     break
 
-            print('Service(%x)' % service.service_type)
+            hkserv = Service(hkaccy, '%X' % (service.service_type,))
+            print('Service(%s)' % (hkserv.type,))
             for idx, c in enumerate(readable_characteristics):
+                hkc = Characteristic(hkserv, '%X' % (c.type,), **c.to_dict())
                 txt = ''
                 if not c.pf_format:
                     txt = '(hex) ' + results[idx].hex()
                 elif c.pf_format == 0x01:
-                    txt = '(bool) ' + str(bool(results[idx]))
+                    txt = '(bool) %s' % struct.unpack('<?', results[idx])
                 elif c.pf_format == 0x04:
                     txt = '(uint8) %d' % struct.unpack('<B', results[idx])
                 elif c.pf_format == 0x06:
@@ -688,7 +957,7 @@ class NanoleafEssentials:
                     txt = '(data) ' + results[idx].hex()
                 else:
                     txt = '(unk/%02x) ' % (c.pf_format,) + results[idx].hex()
-                print('  Characteristic(%x)=%s' % (c.type, txt))
+                print('  Characteristic(%s)=%s' % (hkc.type, txt))
 
     async def read_characteristic(self, service_type, characteristic_type):
         uri = "coap://%s/" % (self.address)
@@ -713,6 +982,7 @@ class NanoleafEssentials:
         pduControl, pduTid, pduStatus, pduBodyLen = struct.unpack('<BBBH', payload[0:5])
         print('PDU %s, TID %02x, %s, Len %d' % (pduControl & 0b00001110 == 0b00000010 and 'response' or 'request', pduTid, pduStatusMap[pduStatus], pduBodyLen))
 
+        print(f"Read data={payload[5:].hex()}")
         decoded = decode_pdu_03(payload[5:])
         print('Body: %s' % (decoded.hex(),))
 
@@ -742,6 +1012,34 @@ class NanoleafEssentials:
 
         print('Body: %s' % (payload[5:].hex(),))
 
+    async def write_pdu(self, service_type, characteristic_type, inner_payload):
+        uri = "coap://%s/" % (self.address)
+        buf = bytearray(7)
+
+        characteristic = self.services.find_service_characteristic_by_type(service_type, characteristic_type)
+        if not characteristic:
+            print('Error! Service/Characteristic not found.')
+            return
+        if not characteristic.properties.supports_secure_writes:
+            print('Error! Characteristic cannot be written.')
+            return
+
+        struct.pack_into('<BBBHH', buf, 0, 0b00000000, HAP_PDU_OPCODES.HAP_CHARACTERISTIC_WRITE, 0x70, characteristic.iid, len(inner_payload))
+        payload = self.encCtx.encrypt(bytes(buf) + inner_payload)
+
+        request = Message(code=POST, payload=payload, uri=uri)
+        response = await self.coapClient.request(request).response
+
+        payload = self.encCtx.decrypt(response.payload)
+
+        pduControl, pduTid, pduStatus, pduBodyLen = struct.unpack('<BBBH', payload[0:5])
+        print('PDU %s, TID %02x, %s, Len %d' % (pduControl & 0b00001110 == 0b00000010 and 'response' or 'request', pduTid, pduStatusMap[pduStatus], pduBodyLen))
+
+        print('Body: %s' % (payload[5:].hex(),))
+        if len(payload[5:]) > 0:
+            tlvs = tlv8.deep_decode(payload[5:])
+            print(tlv8.format_string(tlvs))
+
 async def get_service_info(zeroconf: Zeroconf, service_type: str, name: str) -> None:
     #info = zeroconf.get_service_info(service_type, name)
     info = AsyncServiceInfo(service_type, name)
@@ -753,7 +1051,7 @@ async def get_service_info(zeroconf: Zeroconf, service_type: str, name: str) -> 
         #print("  Addresses: %s" % ", ".join(addresses))
 
         # add short ID to properties
-        info.properties[b'__id4'] = info.server.split('.')[0].split('-')[2]
+        print(info.server.split('.'))
 
         hap_services[addresses[0]] = info.properties
 
@@ -765,7 +1063,7 @@ def on_service_state_change(zeroconf: Zeroconf, service_type: str, name: str, st
 
 hap_services = dict()
 async def amain(args):
-    # discover ltpdu services
+    # discover hap/udp services
     zeroconf = AsyncZeroconf(ip_version=IPVersion.V6Only)
     browser = AsyncServiceBrowser(zeroconf.zeroconf, ["_hap._udp.local."], handlers=[on_service_state_change])
     # ... only wait specified time for devices to respond
@@ -774,17 +1072,14 @@ async def amain(args):
     await zeroconf.async_close()
     # ... set up sessions with requested devices
     devices_by_eui64 = dict()
-    devices_by_id4 = dict()
     for addr, properties in hap_services.items():
         # global device filter
         if args.devices and len(args.devices) > 0:
-            eui64 = properties.get(b'eui64')
-            id4 = properties.get(b'__id4')
-            if eui64 not in args.devices and id4 not in args.devices:
+            eui64 = properties.get(b'id').decode('ascii')
+            if eui64 not in args.devices:
                 continue
-        device = NanoleafEssentials(addr, properties)
-        devices_by_eui64[properties.get(b'eui64')] = device
-        devices_by_id4[properties.get(b'__id4')] = device
+        device = HAPThreadDevice(addr, properties)
+        devices_by_eui64[eui64] = device
     # ... and then run our actions
     for action in args.action:
         params = []
@@ -796,7 +1091,7 @@ async def amain(args):
         if '@' in action:
             # action-specific device filter
             action, devid = action.split('@')
-            target = devices_by_eui64.get(devid, devices_by_id4.get(devid))
+            target = devices_by_eui64.get(devid)
             targets = [target] if target else []
         if len(targets) == 0:
             print("No matching devices for action %s@%s" % (action, devid))
@@ -809,7 +1104,7 @@ async def amain(args):
             else:
                 [await target.do_pair_verify(
                     bytes.fromhex(params[0]),
-                    bytes.fromhex(params[1]),
+                    bytes(params[1], encoding='ascii'),
                     bytes.fromhex(params[2])
                 ) for target in targets]
         elif action == 'dump':
@@ -824,8 +1119,12 @@ async def amain(args):
             [await target.read_all_characteristics() for target in targets]
         elif action == 'subscribe':
             [await target.subscribe_to(int(params[0], base=16), int(params[1], base=16)) for target in targets]
+        elif action == 'unpair':
+            [await target.do_remove_pairing(bytes(params[0], encoding='ascii')) for target in targets]
         elif action == 'write':
             [await target.write_characteristic(int(params[0], base=16), int(params[1], base=16), bytes.fromhex(params[2])) for target in targets]
+        elif action == 'writepdu':
+            [await target.write_pdu(int(params[0], base=16), int(params[1], base=16), bytes.fromhex(params[2])) for target in targets]
 
     if args.wait:
         await asyncio.get_running_loop().create_future()
@@ -835,10 +1134,10 @@ logging.basicConfig(level=logging.INFO)
 #logging.getLogger('zeroconf').setLevel(logging.DEBUG)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('action', help='actions to perform (auth[@ID/EUI64]=pin/token; color=h,s,v; identify; pause=seconds; power=on/off; state)', nargs='+')
-parser.add_argument('--devices', help='list of device IDs/EUI64s to perform actions on', type=lambda x: x.split(','))
+parser.add_argument('action', help='actions to perform (auth[@ID]=pin/token; color=h,s,v; identify; pause=seconds; power=on/off; state)', nargs='+')
+parser.add_argument('--devices', help='list of device IDs to perform actions on', type=lambda x: x.split(','))
 parser.add_argument('--wait', help='wait forever, useful to receive subscription notifications', action='store_true')
-parser.add_argument('--zeroconf-timeout', help='seconds to wait for device discovery', type=int, default=1)
+parser.add_argument('--zeroconf-timeout', help='seconds to wait for device discovery', type=int, default=2)
 args = parser.parse_args()
 
 asyncio.get_event_loop().run_until_complete(amain(args))
@@ -851,7 +1150,7 @@ asyncio.get_event_loop().run_until_complete(amain(args))
 # - our pairing ID
 # - our long-term secret key
 ## these hex values are output after the pair process
-# hapcoap.py --devices 1234 auth=LTPK,OurPairingID,LTSK ...
+# hapcoap.py --devices 1234 auth=AccessoryLTPK,OurPairingID,OurLTSK ...
 ## subscribe to a Light accessory's On characteristic
 # hapcoap.py --wait --devices 1234 auth=LTPK,OurPairingID,LTSK subscribe=43,25
 ## read a Light accessory's Name, On, ColorTemp, Brightness, Hue, Saturation
