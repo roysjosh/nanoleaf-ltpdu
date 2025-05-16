@@ -175,6 +175,73 @@ class NanoleafEssentials:
         response = await self.coapClient.request(request).response
         print("Execute Identify response CoAP(code:%s) header: %s payload: %s" % (response.code, response.payload[0:4].hex(), response.payload[4:].hex()))
 
+    async def get_scene(self, scene_id):
+        uri = "coap://%s/nlltpdu" % (self.address)
+
+        payload = self.aesCtx.update(create_tlv(0x0001, b'ci') + create_tlv(0x0002, create_tlv(0x0704, scene_id)))
+        request = Message(code=POST, payload=payload, uri=uri)
+
+        response = await self.coapClient.request(request).response
+        print("Execute Get-Scene response CoAP(code:%s) header: %s payload: %s" % (response.code, response.payload[0:4].hex(), response.payload[4:].hex()))
+        rbuf = self.aesCtx.update(response.payload)
+        print('Plaintext: %s' % (rbuf.hex()))
+
+        off = 0
+
+        rtype, rlen = struct.unpack("!HH", rbuf[0:4])
+        # 0001 -> "ci"
+        off += 4 + rlen
+
+        rtype, rlen, rstatus = struct.unpack_from("!HHB", rbuf, off)
+        # 0003 -> 00 + response
+        off += 5
+
+        rtype, rlen = struct.unpack_from("!HH", rbuf, off)
+        # 8703 -> len/data
+        off += 4
+        rdata = rbuf[off : off + rlen]
+
+        print(f"SCENE DETAILS status={rstatus} data={rdata.hex()}")
+
+    async def list_scenes(self):
+        uri = "coap://%s/nlltpdu" % (self.address)
+
+        payload = self.aesCtx.update(create_tlv(0x0001, b'ci') + create_tlv(0x0002, create_tlv(0x0703, b'')))
+        request = Message(code=POST, payload=payload, uri=uri)
+
+        response = await self.coapClient.request(request).response
+        print("Execute List-Scenes response CoAP(code:%s) header: %s payload: %s" % (response.code, response.payload[0:4].hex(), response.payload[4:].hex()))
+        rbuf = self.aesCtx.update(response.payload)
+        print('Plaintext: %s' % (rbuf.hex()))
+
+        off = 0
+
+        rtype, rlen = struct.unpack("!HH", rbuf[0:4])
+        # 0001 -> "ci"
+        off += 4 + rlen
+
+        rtype, rlen, rstatus = struct.unpack_from("!HHB", rbuf, off)
+        # 0003 -> 00 + response
+        off += 5
+
+        rtype, rlen = struct.unpack_from("!HH", rbuf, off)
+        # 8703 -> len/data
+        off += 4
+        rdata = rbuf[off : off + rlen]
+
+        print(f"SCENE IDs status={rstatus} data={rdata.hex()}")
+
+    async def play_scene(self, scene_id):
+        uri = "coap://%s/nlltpdu" % (self.address)
+
+        payload = self.aesCtx.update(create_tlv(0x0001, b'ci') + create_tlv(0x0002, create_tlv(0x0706, scene_id)))
+        request = Message(code=POST, payload=payload, uri=uri)
+
+        response = await self.coapClient.request(request).response
+        print("Execute Play-Scene response CoAP(code:%s) header: %s payload: %s" % (response.code, response.payload[0:4].hex(), response.payload[4:].hex()))
+        rbuf = self.aesCtx.update(response.payload)
+        print('Plaintext: %s' % (rbuf.hex()))
+
     async def get_device_info(self):
         uri = "coap://%s/nlltpdu" % (self.address)
 
@@ -318,6 +385,12 @@ async def amain(args):
             await asyncio.sleep(int(params[0]))
         elif action == 'power':
             [await target.turn_light_on_off(b'\x01' if params[0] == 'on' else b'\x00') for target in targets]
+        elif action == 'scene-get':
+            [await target.get_scene(bytes.fromhex(params[0])) for target in targets]
+        elif action == 'scene-list':
+            [await target.list_scenes() for target in targets]
+        elif action == 'scene-play':
+            [await target.play_scene(bytes.fromhex(params[0])) for target in targets]
         elif action == 'state':
             print([await target.get_device_info() for target in targets])
         elif action == 'unpair':
